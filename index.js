@@ -29,8 +29,8 @@ if (!fs.existsSync(DB_DIR)) {
 const dbPath = path.join(DB_DIR, 'ligue1.db');
 
 // Configurer vos clés
-const RAPIDAPI_KEY = "c16a3bd85cmsh57c4e77612f35fep1b54b0jsnc50c626d3ff5";
-const RAPIDAPI_HOST = "api-football-v1.p.rapidapi.com";
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST;
 const LIGUE1_ID = 61;
 const SEASON = 2024;
 
