@@ -111,8 +111,67 @@ def calculate_team_stats(df):
     
     return stats
 
+def get_player_availability(team, date):
+    """
+    Récupère les informations sur les joueurs indisponibles
+    À implémenter avec l'API RapidAPI Football
+    """
+    try:
+        # Appel API RapidAPI pour obtenir les blessures/suspensions
+        # À adapter selon votre clé API et endpoint
+        return {
+            'key_players_missing': 0,  # Nombre de joueurs clés absents
+            'total_players_missing': 0  # Nombre total de joueurs absents
+        }
+    except Exception as e:
+        print(f"Erreur lors de la récupération des disponibilités : {e}")
+        return {'key_players_missing': 0, 'total_players_missing': 0}
+
+def calculate_fatigue_index(matches, team, date, window_days=30):
+    """
+    Calcule un index de fatigue basé sur le nombre de matchs récents
+    et les déplacements
+    """
+    recent_matches = matches[
+        (matches['date'] >= date - timedelta(days=window_days)) &
+        (matches['date'] < date) &
+        ((matches['home_team'] == team) | (matches['away_team'] == team))
+    ]
+    
+    # Nombre de matchs dans la période
+    num_matches = len(recent_matches)
+    
+    # Nombre de déplacements (matchs à l'extérieur)
+    away_matches = len(recent_matches[recent_matches['away_team'] == team])
+    
+    # Index de fatigue (0-1)
+    fatigue_index = (num_matches / 10) * 0.7 + (away_matches / 5) * 0.3
+    return min(fatigue_index, 1.0)
+
+def get_competition_load(team, date):
+    """
+    Évalue la charge due aux différentes compétitions
+    À implémenter avec l'API RapidAPI Football
+    """
+    try:
+        # Appel API RapidAPI pour obtenir les compétitions en cours
+        return {
+            'in_champions_league': False,
+            'in_europa_league': False,
+            'in_conference_league': False,
+            'in_coupe_france': False
+        }
+    except Exception as e:
+        print(f"Erreur lors de la récupération des compétitions : {e}")
+        return {
+            'in_champions_league': False,
+            'in_europa_league': False,
+            'in_conference_league': False,
+            'in_coupe_france': False
+        }
+
 def add_features(df, stats):
-    """Ajoute des features avancées au DataFrame"""
+    """Ajoute toutes les features au DataFrame"""
     features = []
     
     for idx, row in df.iterrows():
@@ -158,6 +217,34 @@ def add_features(df, stats):
                 'h2h_draws': 0, 'h2h_home_goals': 0, 'h2h_away_goals': 0
             })
     
+    # Ajout des nouvelles features
+    df['home_fatigue'] = df.apply(lambda row: calculate_fatigue_index(
+        df, row['home_team'], row['date']), axis=1)
+    df['away_fatigue'] = df.apply(lambda row: calculate_fatigue_index(
+        df, row['away_team'], row['date']), axis=1)
+    
+    # Disponibilité des joueurs
+    availability_features = df.apply(lambda row: {
+        'home_' + k: v for k, v in get_player_availability(row['home_team'], row['date']).items()
+    } | {
+        'away_' + k: v for k, v in get_player_availability(row['away_team'], row['date']).items()
+    }, axis=1)
+    
+    for feature in ['key_players_missing', 'total_players_missing']:
+        df[f'home_{feature}'] = availability_features.apply(lambda x: x[f'home_{feature}'])
+        df[f'away_{feature}'] = availability_features.apply(lambda x: x[f'away_{feature}'])
+    
+    # Charge des compétitions
+    competition_features = df.apply(lambda row: {
+        'home_' + k: v for k, v in get_competition_load(row['home_team'], row['date']).items()
+    } | {
+        'away_' + k: v for k, v in get_competition_load(row['away_team'], row['date']).items()
+    }, axis=1)
+    
+    for comp in ['champions_league', 'europa_league', 'conference_league', 'coupe_france']:
+        df[f'home_in_{comp}'] = competition_features.apply(lambda x: x[f'home_in_{comp}'])
+        df[f'away_in_{comp}'] = competition_features.apply(lambda x: x[f'away_in_{comp}'])
+
     return pd.DataFrame(features)
 
 def optimize_hyperparameters(X, y):

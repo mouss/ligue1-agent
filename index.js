@@ -1,4 +1,5 @@
 // index.js
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const sqlite3 = require('sqlite3').verbose();
@@ -36,7 +37,7 @@ const SEASON = 2024;
 // Configuration Python
 const PYTHON_OPTIONS = {
     mode: 'text',
-    pythonPath: 'python3',
+    pythonPath: '/Library/Developer/CommandLineTools/usr/bin/python3',
     scriptPath: PYTHON_DIR,
     pythonOptions: ['-u']  // Mode unbuffered pour les logs en temps réel
 };

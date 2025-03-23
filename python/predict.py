@@ -118,7 +118,7 @@ def predict_upcoming():
         print("\nRécupération des matchs à venir...")
         conn = sqlite3.connect(DB_PATH)
         upcoming_df = pd.read_sql_query(
-            "SELECT * FROM matches WHERE home_score IS NULL ORDER BY date",
+            "SELECT DISTINCT fixture_id, date, round, home_team, away_team, home_score, away_score FROM matches WHERE home_score IS NULL ORDER BY date",
             conn
         )
         print(f"Nombre de matchs à prédire: {len(upcoming_df)}")
