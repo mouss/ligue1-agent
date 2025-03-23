@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Derniers Résultats</title>
+</head>
+<body>
+    <h1>Derniers Résultats Joués</h1>
+
+    <% if (data && data.length > 0) { %>
+      <table border="1">
+        <tr>
+          <th>Date</th>
+          <th>Home</th>
+          <th>Away</th>
+          <th>Score</th>
+        </tr>
+        <% data.forEach(match => { %>
+          <tr>
+            <td><%= match.date %></td>
+            <td><%= match.home_team %></td>
+            <td><%= match.away_team %></td>
+            <td><%= match.home_score %> - <%= match.away_score %></td>
+          </tr>
+        <% }) %>
+      </table>
+    <% } else { %>
+      <p>Aucun match terminé</p>
+    <% } %>
+
+    <p><a href="/">Retour à l'accueil</a></p>
+</body>
+</html>

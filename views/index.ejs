@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IA Pronostics Ligue 1</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        .hero {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 4rem 0;
+            margin-bottom: 2rem;
+        }
+        .feature-card {
+            transition: all 0.3s ease;
+            border: none;
+            border-radius: 15px;
+        }
+        .feature-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .icon-circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+        .stats-card {
+            background: white;
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .bi {
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Hero Section -->
+    <div class="hero">
+        <div class="container text-center">
+            <h1 class="display-4 mb-3">IA Pronostics Ligue 1</h1>
+            <p class="lead mb-4">Intelligence artificielle pour prédire les résultats des matchs de Ligue 1</p>
+            <a href="/predictions" class="btn btn-light btn-lg px-4 me-2">
+                <i class="bi bi-graph-up"></i> Voir les prédictions
+            </a>
+            <a href="/results" class="btn btn-outline-light btn-lg px-4">
+                <i class="bi bi-table"></i> Résultats passés
+            </a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Features Section -->
+        <div class="row g-4 mb-5">
+            <div class="col-md-4">
+                <div class="card feature-card h-100">
+                    <div class="card-body text-center">
+                        <div class="icon-circle bg-primary mx-auto">
+                            <i class="bi bi-robot text-white"></i>
+                        </div>
+                        <h5 class="card-title">Intelligence Artificielle</h5>
+                        <p class="card-text">Utilisation de modèles XGBoost avancés pour des prédictions précises basées sur l'historique des matchs.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card feature-card h-100">
+                    <div class="card-body text-center">
+                        <div class="icon-circle bg-success mx-auto">
+                            <i class="bi bi-graph-up-arrow text-white"></i>
+                        </div>
+                        <h5 class="card-title">Analyse Statistique</h5>
+                        <p class="card-text">Analyse approfondie des performances des équipes à domicile et à l'extérieur.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card feature-card h-100">
+                    <div class="card-body text-center">
+                        <div class="icon-circle bg-info mx-auto">
+                            <i class="bi bi-clock-history text-white"></i>
+                        </div>
+                        <h5 class="card-title">Mise à Jour en Temps Réel</h5>
+                        <p class="card-text">Données actualisées régulièrement via l'API officielle de la Ligue 1.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Section -->
+        <div class="row mb-5">
+            <div class="col-12">
+                <h2 class="text-center mb-4">Comment ça marche ?</h2>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card text-center">
+                    <i class="bi bi-database mb-3 text-primary"></i>
+                    <h3 class="h5">Collecte de Données</h3>
+                    <p class="text-muted small">Historique complet des matchs de Ligue 1</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card text-center">
+                    <i class="bi bi-gear mb-3 text-success"></i>
+                    <h3 class="h5">Entraînement IA</h3>
+                    <p class="text-muted small">Modèle XGBoost optimisé</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card text-center">
+                    <i class="bi bi-graph-up mb-3 text-info"></i>
+                    <h3 class="h5">Analyse</h3>
+                    <p class="text-muted small">Calcul des probabilités</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card text-center">
+                    <i class="bi bi-trophy mb-3 text-warning"></i>
+                    <h3 class="h5">Prédiction</h3>
+                    <p class="text-muted small">Résultats des matchs à venir</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions Section -->
+        <div class="row mb-5">
+            <div class="col-12 text-center">
+                <h2 class="mb-4">Actions Rapides</h2>
+                <a href="/fetch-matches" class="btn btn-outline-primary me-2 mb-2">
+                    <i class="bi bi-cloud-download"></i> Mettre à jour les données
+                </a>
+                <a href="/train" class="btn btn-outline-success me-2 mb-2">
+                    <i class="bi bi-gear"></i> Entraîner le modèle
+                </a>
+                <a href="/predictions" class="btn btn-outline-info mb-2">
+                    <i class="bi bi-eye"></i> Voir les prédictions
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-light py-4 mt-5">
+        <div class="container text-center">
+            <p class="mb-0">IA Pronostics Ligue 1 - Développé avec ❤️ et Node.js + Python</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
