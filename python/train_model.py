@@ -172,7 +172,7 @@ def get_competition_load(team, date):
 
 def add_features(df, stats):
     """Ajoute toutes les features au DataFrame"""
-    features = []
+    features_dict = {}
     
     for idx, row in df.iterrows():
         home_team = row['home_team']
@@ -182,7 +182,7 @@ def add_features(df, stats):
         h2h = get_h2h_stats(df[df['date'] < row['date']], home_team, away_team)
         
         if home_team in stats and away_team in stats:
-            features.append({
+            features_dict[idx] = {
                 # Statistiques générales
                 'home_avg_scored': stats[home_team]['avg_goals_scored_home'],
                 'home_avg_conceded': stats[home_team]['avg_goals_conceded_home'],
@@ -205,9 +205,9 @@ def add_features(df, stats):
                 'h2h_draws': h2h['draws'],
                 'h2h_home_goals': h2h['team1_goals_avg'],
                 'h2h_away_goals': h2h['team2_goals_avg']
-            })
+            }
         else:
-            features.append({
+            features_dict[idx] = {
                 'home_avg_scored': 0, 'home_avg_conceded': 0,
                 'away_avg_scored': 0, 'away_avg_conceded': 0,
                 'home_recent_scored': 0, 'home_recent_conceded': 0,
@@ -215,7 +215,13 @@ def add_features(df, stats):
                 'home_form': 0, 'away_form': 0,
                 'h2h_home_wins': 0, 'h2h_away_wins': 0,
                 'h2h_draws': 0, 'h2h_home_goals': 0, 'h2h_away_goals': 0
-            })
+            }
+    
+    # Création du DataFrame avec l'index original
+    features_df = pd.DataFrame.from_dict(features_dict, orient='index')
+    
+    # S'assurer que l'index correspond exactement à celui du DataFrame d'origine
+    features_df = features_df.reindex(df.index)
     
     # Ajout des nouvelles features
     df['home_fatigue'] = df.apply(lambda row: calculate_fatigue_index(
@@ -245,7 +251,7 @@ def add_features(df, stats):
         df[f'home_in_{comp}'] = competition_features.apply(lambda x: x[f'home_in_{comp}'])
         df[f'away_in_{comp}'] = competition_features.apply(lambda x: x[f'away_in_{comp}'])
 
-    return pd.DataFrame(features)
+    return pd.concat([df, features_df], axis=1)
 
 def optimize_hyperparameters(X, y):
     """Optimise les hyperparamètres du modèle XGBoost"""
@@ -301,32 +307,58 @@ def train_model():
         print(f"Statistiques calculées pour {len(team_stats)} équipes")
         
         print("\nGénération des features avancées...")
-        features_df = add_features(df, team_stats)
+        df = add_features(df, team_stats)
         
         # Ajout des encodages catégoriels
-        df['home_team_id'] = df['home_team'].astype('category').cat.codes
-        df['away_team_id'] = df['away_team'].astype('category').cat.codes
+        df['home_team'] = pd.Categorical(df['home_team'])
+        df['away_team'] = pd.Categorical(df['away_team'])
+        df['home_team_id'] = df['home_team'].cat.codes
+        df['away_team_id'] = df['away_team'].cat.codes
         
         # Combiner toutes les features
+        feature_columns = df.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns
+        feature_columns = [col for col in feature_columns if col not in ['home_score', 'away_score']]
+        
         X = pd.concat([
-            df[['home_team_id', 'away_team_id']],
-            features_df
+            df[['home_team_id', 'away_team_id']].astype('int32'),
+            df[feature_columns].astype('float32')
         ], axis=1)
         
         print(f"\nFeatures générées ({X.shape[1]} au total):")
+        print("\nColonnes numériques utilisées:")
         for col in X.columns:
             print(f"- {col}")
         
         y_home = df['home_score'].values
         y_away = df['away_score'].values
 
+        # Vérification initiale des dimensions
+        print("\nVérification des dimensions:")
+        print(f"Nombre total d'échantillons: {len(df)}")
+        print(f"Dimensions de X: {X.shape}")
+        print(f"Dimensions de y_home: {len(y_home)}")
+        print(f"Dimensions de y_away: {len(y_away)}")
+
         # 4) Split chronologique
         train_size = int(len(df) * 0.8)
-        X_train, X_test = X[:train_size], X[train_size:]
-        y_home_train, y_home_test = y_home[:train_size], y_home[train_size:]
-        y_away_train, y_away_test = y_away[:train_size], y_away[train_size:]
-        print(f"\nSplit des données: {train_size} matchs en train, {len(df) - train_size} en test")
-
+        
+        # Vérification que tous les arrays ont la même longueur
+        assert len(X) == len(df) == len(y_home) == len(y_away), "Les dimensions des données ne correspondent pas"
+        
+        X_train = X.iloc[:train_size]
+        X_test = X.iloc[train_size:]
+        y_home_train = y_home[:train_size]
+        y_home_test = y_home[train_size:]
+        y_away_train = y_away[:train_size]
+        y_away_test = y_away[train_size:]
+        
+        # Vérification des dimensions après split
+        print(f"\nSplit des données:")
+        print(f"Train: {len(X_train)} échantillons")
+        print(f"Test: {len(X_test)} échantillons")
+        assert len(X_train) == len(y_home_train) == len(y_away_train), "Dimensions incohérentes dans l'ensemble d'entraînement"
+        assert len(X_test) == len(y_home_test) == len(y_away_test), "Dimensions incohérentes dans l'ensemble de test"
+        
         # 5) Optimisation des hyperparamètres
         print("\n=== Optimisation pour le modèle Domicile ===")
         best_params_home = optimize_hyperparameters(X_train, y_home_train)
@@ -345,6 +377,10 @@ def train_model():
         # 7) Évaluation complète
         y_home_pred = xgb_home.predict(X_test)
         y_away_pred = xgb_away.predict(X_test)
+
+        # Vérification des dimensions
+        assert len(y_home_test) == len(y_home_pred), "Dimensions incohérentes pour les prédictions à domicile"
+        assert len(y_away_test) == len(y_away_pred), "Dimensions incohérentes pour les prédictions à l'extérieur"
 
         metrics = {
             'home': {

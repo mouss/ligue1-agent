@@ -190,13 +190,13 @@
                                                 </div>
                                                 <div>
                                                     <i class="bi bi-graph-up text-primary me-1"></i>
-                                                    <span class="fw-bold"><%= match.confidence.home_form.toFixed(0) %>%</span>
+                                                    <span class="fw-bold"><%= match.confidence && match.confidence.home_form ? match.confidence.home_form.toFixed(0) : '50' %>%</span>
                                                 </div>
                                             </div>
                                             <div class="progress mt-2" style="height: 12px">
                                                 <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
                                                     role="progressbar" 
-                                                    style="width: <%= match.confidence.home_form %>%">
+                                                    style="width: <%= match.confidence && match.confidence.home_form ? match.confidence.home_form : '50' %>%">
                                                 </div>
                                             </div>
                                         </div>
@@ -208,13 +208,13 @@
                                                 </div>
                                                 <div>
                                                     <i class="bi bi-graph-up text-info me-1"></i>
-                                                    <span class="fw-bold"><%= match.confidence.away_form.toFixed(0) %>%</span>
+                                                    <span class="fw-bold"><%= match.confidence && match.confidence.away_form ? match.confidence.away_form.toFixed(0) : '50' %>%</span>
                                                 </div>
                                             </div>
                                             <div class="progress mt-2" style="height: 12px">
                                                 <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
                                                     role="progressbar" 
-                                                    style="width: <%= match.confidence.away_form %>%">
+                                                    style="width: <%= match.confidence && match.confidence.away_form ? match.confidence.away_form : '50' %>%">
                                                 </div>
                                             </div>
                                         </div>
