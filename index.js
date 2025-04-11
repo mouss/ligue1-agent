@@ -24,7 +24,14 @@ const SEASON = 2024;
 // Configuration d'Express
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.use(express.static('public'));
+app.use('/images', express.static(path.join(__dirname, 'public', 'images')));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Middleware pour logger les requêtes
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+});
 
 // Stocker les connexions WebSocket actives
 const clients = new Set();
@@ -289,143 +296,92 @@ app.get('/train', async (req, res) => {
     }
 });
 
-app.get('/predict-upcoming', (req, res) => {
-  const scriptPath = path.join(__dirname, 'python', 'predict.py');
-  let pyshell = new PythonShell(scriptPath);
-
-  let output = "";
-  pyshell.on('message', (message) => {
-    output += message;
-  });
-
-  pyshell.end((err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).send("Erreur lors de la prédiction");
-    }
-    // output devrait être du JSON
-    try {
-      const data = JSON.parse(output);
-      res.json(data);
-    } catch(e) {
-      console.error("Parse JSON error:", e);
-      res.status(500).send("Erreur parsing JSON");
-    }
-  });
-});
-
-// prediction 2.0
 app.get('/predictions', (req, res) => {
     console.log('Démarrage des prédictions...');
     
-    const pyshell = new PythonShell('predict.py', {
+    const scriptPath = path.join(__dirname, 'python', 'predict.py');
+    console.log('Chemin du script Python:', scriptPath);
+    
+    const options = {
         mode: 'text',
         pythonPath: '/Library/Developer/CommandLineTools/usr/bin/python3',
-        scriptPath: path.join(__dirname, 'python'),
-        pythonOptions: ['-u']  // Mode unbuffered pour les logs en temps réel
+        scriptPath: path.dirname(scriptPath),
+        pythonOptions: ['-u']  // Mode unbuffered
+    };
+
+    console.log('Options Python:', options);
+
+    let pyshell = new PythonShell(path.basename(scriptPath), options);
+    let output = '';
+
+    pyshell.on('message', function (message) {
+        console.log('Message reçu du script Python:', message);
+        output += message;
     });
 
-    let output = "";
-    pyshell.on('message', (message) => {
-        console.log("[PYTHON]", message);
-        output += message + "\n";
+    pyshell.on('stderr', function (stderr) {
+        console.error('Stderr Python:', stderr);
     });
 
-    pyshell.on('stderr', (stderr) => {
-        console.error('[PYTHON ERROR]', stderr);
+    pyshell.on('error', function(err) {
+        console.error('Erreur Python Shell:', err);
     });
 
-    pyshell.on('error', (err) => {
-        console.error('Erreur lors de l\'exécution du script Python:', err);
-        return res.render('predictions', {
-            error: {
-                message: err.message,
-                details: output
-            },
-            groupedArray: [],
-            roundIndex: 0,
-            currentRoundData: null,
-            totalRounds: 0
-        });
-    });
-
-    pyshell.end((err, code, signal) => {
+    pyshell.end(function (err) {
         if (err) {
-            console.error('Erreur lors des prédictions:', err);
-            return res.render('predictions', {
-                error: {
-                    message: err.message,
-                    details: output
-                },
-                groupedArray: [],
-                roundIndex: 0,
-                currentRoundData: null,
-                totalRounds: 0
+            console.error('Erreur de prédiction:', err);
+            return res.render('operation-status', {
+                status: 'error',
+                title: 'Erreur de prédiction',
+                message: 'Une erreur est survenue lors de la prédiction',
+                details: [err.message]
             });
         }
 
         try {
-            // Prendre la dernière ligne non vide comme résultat JSON
-            const jsonOutput = output.split('\n')
-                .filter(line => line.trim())
-                .pop();
+            console.log('Sortie brute reçue:', output);
             
-            const predictions = JSON.parse(jsonOutput);
-            
-            if (predictions.status === 'error') {
-                return res.status(500).render('predictions', {
-                    error: predictions.error,
-                    groupedArray: [],
-                    roundIndex: 0,
-                    currentRoundData: null,
-                    totalRounds: 0
-                });
+            // S'assurer que la sortie n'est pas vide
+            if (!output || !output.trim()) {
+                throw new Error('Aucune donnée reçue du script Python');
             }
 
-            // Grouper par "round" (journée)
-            const grouped = {};
-            predictions.predictions.forEach(match => {
-                const journee = match.round || "N/A";
-                if (!grouped[journee]) grouped[journee] = [];
-                grouped[journee].push(match);
-            });
-
-            // Transformer en tableau [{ round: "...", matches: [...]}, ...]
-            const groupedArray = Object.keys(grouped).map(r => ({
-                round: r,
-                matches: grouped[r]
-            }));
-
-            // Navigation par roundIndex
-            let roundIndex = parseInt(req.query.roundIndex, 10) || 0;
-            if (roundIndex < 0) roundIndex = 0;
-            if (roundIndex >= groupedArray.length) roundIndex = groupedArray.length - 1;
-
-            // Récupérer l'objet { round, matches } pour la journée courante
-            let currentRoundData = groupedArray.length > 0 ? groupedArray[roundIndex] : null;
-
-            res.render('predictions', {
-                error: null,
-                metadata: predictions.metadata,
-                groupedArray,
-                roundIndex,
-                currentRoundData,
-                totalRounds: groupedArray.length
-            });
+            const predictions = JSON.parse(output.trim());
+            console.log('Prédictions parsées:', predictions);
             
-            console.log("Nombre de journées distinctes:", groupedArray.length);
+            if (!Array.isArray(predictions)) {
+                throw new Error('Format de prédictions invalide');
+            }
+
+            // Dédupliquer les prédictions
+            const uniquePredictions = predictions.filter((pred, index) => {
+                return predictions.findIndex(p => 
+                    p.home_team === pred.home_team && 
+                    p.away_team === pred.away_team && 
+                    p.date === pred.date
+                ) === index;
+            });
+
+            // Trier par date
+            uniquePredictions.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            console.log('Nombre de prédictions uniques:', uniquePredictions.length);
+
+            // Rendu du template avec les données
+            return res.render('predictions', {
+                title: 'Prédictions Ligue 1',
+                message: uniquePredictions.length > 0 ? `${uniquePredictions.length} matchs prédits` : 'Aucune prédiction disponible',
+                predictions: uniquePredictions || []
+            });
 
         } catch (parseError) {
             console.error('Erreur lors du parsing JSON:', parseError);
-            res.status(500).render('predictions', {
-                error: {
-                    message: 'Erreur lors du parsing des résultats',
-                    details: output
-                },
-                groupedArray: [],
-                roundIndex: 0,
-                currentRoundData: null,
-                totalRounds: 0
+            console.error('Sortie brute:', output);
+            return res.render('operation-status', {
+                status: 'error',
+                title: 'Erreur de parsing',
+                message: 'Erreur lors du parsing des résultats',
+                details: [parseError.message, 'Voir les logs pour plus de détails']
             });
         }
     });
