@@ -65,7 +65,8 @@ async function createTables(db) {
         `DROP TABLE IF EXISTS player_availability;`,
         `DROP TABLE IF EXISTS stadium_conditions;`,
         `DROP TABLE IF EXISTS european_matches;`,
-        `DROP TABLE IF EXISTS team_form;`
+        `DROP TABLE IF EXISTS team_form;`,
+        `DROP TABLE IF EXISTS head_to_head_stats;`
     ];
 
     for (const query of dropQueries) {
@@ -82,16 +83,29 @@ async function createTables(db) {
     }
 
     const tableQueries = [
-        // Table pour les blessures et suspensions
+        // Table pour les blessures et suspensions avec la nouvelle structure
         `CREATE TABLE IF NOT EXISTS player_availability (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             player_name TEXT NOT NULL,
             team TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('blessé', 'suspendu', 'incertain')),
             reason TEXT,
-            start_date DATE,
-            end_date DATE,
-            is_key_player BOOLEAN DEFAULT 0
+            start_date DATE NOT NULL,
+            expected_return DATE,
+            impact_level INTEGER CHECK (impact_level BETWEEN 1 AND 5),
+            is_key_player BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(team) REFERENCES teams(name)
         )`,
+
+        // Trigger pour mettre à jour le timestamp
+        `CREATE TRIGGER IF NOT EXISTS update_player_availability_timestamp 
+         AFTER UPDATE ON player_availability
+         BEGIN
+             UPDATE player_availability SET updated_at = CURRENT_TIMESTAMP
+             WHERE id = NEW.id;
+         END`,
 
         // Table pour les conditions météo
         `CREATE TABLE IF NOT EXISTS stadium_conditions (
@@ -102,6 +116,21 @@ async function createTables(db) {
             precipitation FLOAT,
             wind_speed FLOAT,
             weather_condition TEXT
+        )`,
+
+        // Table pour les statistiques des confrontations directes
+        `CREATE TABLE IF NOT EXISTS head_to_head_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team1 TEXT NOT NULL,
+            team2 TEXT NOT NULL,
+            last_5_matches TEXT,
+            team1_goals_avg FLOAT,
+            team2_goals_avg FLOAT,
+            team1_wins INTEGER,
+            team2_wins INTEGER,
+            draws INTEGER,
+            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(team1, team2)
         )`,
 
         // Table pour les matchs européens
@@ -147,8 +176,13 @@ async function createIndexes(db) {
     const indexQueries = [
         // Index pour la table player_availability
         `CREATE INDEX IF NOT EXISTS idx_player_availability_team ON player_availability(team);`,
-        `CREATE INDEX IF NOT EXISTS idx_player_availability_dates ON player_availability(start_date, end_date);`,
-        `CREATE INDEX IF NOT EXISTS idx_player_availability_key_player ON player_availability(is_key_player);`,
+        `CREATE INDEX IF NOT EXISTS idx_player_availability_status ON player_availability(status);`,
+        `CREATE INDEX IF NOT EXISTS idx_player_availability_dates ON player_availability(start_date, expected_return);`,
+        `CREATE INDEX IF NOT EXISTS idx_player_availability_impact ON player_availability(impact_level);`,
+        
+        // Index pour la table head_to_head_stats
+        `CREATE INDEX IF NOT EXISTS idx_h2h_teams ON head_to_head_stats(team1, team2);`,
+        `CREATE INDEX IF NOT EXISTS idx_h2h_last_updated ON head_to_head_stats(last_updated);`,
         
         // Index pour la table stadium_conditions
         `CREATE INDEX IF NOT EXISTS idx_stadium_conditions_date ON stadium_conditions(match_date);`,

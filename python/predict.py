@@ -6,11 +6,22 @@ import json
 import os
 import sys
 from datetime import datetime
+from features import FEATURES  # Import des features depuis le nouveau fichier
 
 # Chemins des fichiers
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'ligue1.db')
 MODEL_HOME_PATH = os.path.join(os.path.dirname(__file__), 'model_new_home')
 MODEL_AWAY_PATH = os.path.join(os.path.dirname(__file__), 'model_new_away')
+
+# Liste des features utilisées pour la prédiction (correspond au modèle entraîné)
+# FEATURES = [
+#     'home_team_form', 'away_team_form',
+#     'home_goals_scored_avg', 'away_goals_scored_avg',
+#     'home_goals_conceded_avg', 'away_goals_conceded_avg',
+#     'weather_temp', 'weather_rain', 'weather_wind',
+#     'home_european', 'away_european',
+#     'home_fatigue', 'away_fatigue'
+# ]
 
 def log(message):
     """Écrit les logs sur stderr pour ne pas interférer avec la sortie JSON"""
@@ -20,66 +31,53 @@ def get_matches():
     """Récupère les matchs de la base de données"""
     conn = sqlite3.connect(DB_PATH)
     query = """
-    WITH match_conditions AS (
-        SELECT 
-            m.id,
-            m.home_team,
-            m.away_team,
-            m.home_score,
-            m.away_score,
-            m.date,
-            sc.temperature as weather_temp,
-            sc.precipitation as weather_rain,
-            sc.wind_speed as weather_wind,
-            sc.weather_condition,
-            CASE 
-                WHEN em_home.team IS NOT NULL THEN 1
-                ELSE 0 
-            END as home_european_match,
-            CASE 
-                WHEN em_away.team IS NOT NULL THEN 1
-                ELSE 0 
-            END as away_european_match,
-            CASE 
-                WHEN julianday(m.date) - julianday(em_home.match_date) <= 3 THEN 1
-                ELSE 0
-            END as home_team_fatigue,
-            CASE 
-                WHEN julianday(m.date) - julianday(em_away.match_date) <= 3 THEN 1
-                ELSE 0
-            END as away_team_fatigue,
-            em_home.competition as home_european_competition,
-            em_away.competition as away_european_competition
-        FROM matches m
-        LEFT JOIN stadium_conditions sc ON date(m.date) = date(sc.match_date)
-        LEFT JOIN european_matches em_home ON (
-            m.home_team = em_home.team
-            AND em_home.match_date BETWEEN datetime(m.date, '-7 days') AND m.date
-        )
-        LEFT JOIN european_matches em_away ON (
-            m.away_team = em_away.team
-            AND em_away.match_date BETWEEN datetime(m.date, '-7 days') AND m.date
-        )
+    WITH unique_matches AS (
+        -- Sélectionner d'abord un seul ID par match et par date exacte
+        SELECT MIN(id) as id
+        FROM matches
+        WHERE datetime(date) >= datetime('now')
+        GROUP BY home_team, away_team, datetime(date)
     )
-    SELECT DISTINCT 
-        MIN(id) as id,
-        home_team,
-        away_team,
-        home_score,
-        away_score,
-        date,
-        AVG(weather_temp) as weather_temp,
-        AVG(weather_rain) as weather_rain,
-        AVG(weather_wind) as weather_wind,
-        MAX(weather_condition) as weather_condition,
-        MAX(home_european_match) as home_european_match,
-        MAX(away_european_match) as away_european_match,
-        MAX(home_team_fatigue) as home_team_fatigue,
-        MAX(away_team_fatigue) as away_team_fatigue,
-        MAX(home_european_competition) as home_european_competition,
-        MAX(away_european_competition) as away_european_competition
-    FROM match_conditions
-    GROUP BY home_team, away_team, date
+    SELECT 
+        m.id,
+        m.home_team,
+        m.away_team,
+        m.home_score,
+        m.away_score,
+        datetime(m.date) as date,
+        sc.temperature as weather_temp,
+        sc.precipitation as weather_rain,
+        sc.wind_speed as weather_wind,
+        sc.weather_condition,
+        CASE 
+            WHEN em_home.team IS NOT NULL THEN 1
+            ELSE 0 
+        END as home_european_match,
+        CASE 
+            WHEN em_away.team IS NOT NULL THEN 1
+            ELSE 0 
+        END as away_european_match,
+        CASE 
+            WHEN julianday(m.date) - julianday(em_home.match_date) <= 3 THEN 1
+            ELSE 0
+        END as home_team_fatigue,
+        CASE 
+            WHEN julianday(m.date) - julianday(em_away.match_date) <= 3 THEN 1
+            ELSE 0
+        END as away_team_fatigue,
+        em_home.competition as home_european_competition,
+        em_away.competition as away_european_competition
+    FROM matches m
+    INNER JOIN unique_matches um ON m.id = um.id
+    LEFT JOIN stadium_conditions sc ON datetime(m.date) = datetime(sc.match_date)
+    LEFT JOIN european_matches em_home ON (
+        m.home_team = em_home.team
+        AND date(em_home.match_date) BETWEEN date(m.date, '-7 days') AND date(m.date)
+    )
+    LEFT JOIN european_matches em_away ON (
+        m.away_team = em_away.team
+        AND date(em_away.match_date) BETWEEN date(m.date, '-7 days') AND date(m.date)
+    )
     ORDER BY date
     """
     matches = pd.read_sql_query(query, conn)
@@ -157,110 +155,170 @@ def get_predictions():
         print(f"Erreur lors de la récupération des prédictions : {e}")
         return []
 
-def calculate_form(matches, team, n_matches=5):
-    """Calcule la forme d'une équipe sur ses n derniers matchs avec pondération"""
-    team_matches = matches[
-        (matches['home_team'] == team) | 
-        (matches['away_team'] == team)
-    ].tail(n_matches)
-    
-    if team_matches.empty:
-        return 0
-    
-    weights = np.exp(np.linspace(-1, 0, len(team_matches)))  # Plus de poids aux matchs récents
-    weights = weights / weights.sum()  # Normalisation des poids
-    
-    form = 0
-    for i, (_, match) in enumerate(team_matches.iterrows()):
-        points = 0
-        if match['home_team'] == team:
-            if match['home_score'] > match['away_score']:
-                points = 3
-            elif match['home_score'] == match['away_score']:
-                points = 1
-            goal_diff = match['home_score'] - match['away_score']
-        else:
-            if match['away_score'] > match['home_score']:
-                points = 3
-            elif match['home_score'] == match['away_score']:
-                points = 1
-            goal_diff = match['away_score'] - match['home_score']
-        
-        # Ajout de la différence de buts dans le calcul de la forme
-        form += weights[i] * (points + 0.1 * goal_diff)
-    
-    return form / 3  # Normalisation entre 0 et ~1
-
-def normalize_features(df):
-    """Normalise les features numériques"""
-    numeric_features = [
-        'home_team_form', 'away_team_form',
-        'home_goals_scored_avg', 'away_goals_scored_avg',
-        'home_goals_conceded_avg', 'away_goals_conceded_avg',
-        'weather_temp', 'weather_rain', 'weather_wind',
-        'home_european', 'away_european',
-        'home_fatigue', 'away_fatigue'
-    ]
-    
-    for feature in numeric_features:
-        if feature in df.columns:
-            mean = df[feature].mean()
-            std = df[feature].std()
-            if std > 0:
-                df[feature] = (df[feature] - mean) / std
-    return df
+def get_team_stats(team):
+    """Récupère les statistiques d'une équipe"""
+    conn = sqlite3.connect(DB_PATH)
+    query = """
+        SELECT 
+            AVG(home_score) as goals_scored_avg,
+            AVG(away_score) as goals_conceded_avg,
+            COUNT(*) as total_matches
+        FROM matches
+        WHERE home_team = ? OR away_team = ?
+    """
+    cursor = conn.cursor()
+    cursor.execute(query, [team, team])
+    stats = cursor.fetchone()
+    conn.close()
+    return pd.DataFrame([stats], columns=['goals_scored_avg', 'goals_conceded_avg', 'total_matches'])
 
 def prepare_features(upcoming_matches, historical_matches):
     """Prépare les features pour les matchs à venir"""
-    # Création du DataFrame avec les features
-    df = pd.DataFrame(columns=[
-        'home_team', 'away_team',
-        'home_team_form', 'away_team_form',
-        'home_goals_scored_avg', 'away_goals_scored_avg',
-        'home_goals_conceded_avg', 'away_goals_conceded_avg',
-        'weather_temp', 'weather_rain', 'weather_wind',
-        'home_european', 'away_european',
-        'home_fatigue', 'away_fatigue'
-    ])
+    df = pd.DataFrame()
     
-    # Ajout des matchs à venir
+    # Colonnes requises pour les matchs historiques
+    required_columns = ['id', 'home_team', 'away_team', 'home_score', 'away_score', 'date']
+    
+    # Vérifier que toutes les colonnes requises sont présentes
+    missing_columns = [col for col in required_columns if col not in historical_matches.columns]
+    if missing_columns:
+        raise ValueError(f"Colonnes manquantes dans historical_matches: {missing_columns}")
+    
+    # Convertir les dates en datetime si ce n'est pas déjà fait et gérer les fuseaux horaires
+    historical_matches['date'] = pd.to_datetime(historical_matches['date'], format='mixed', utc=True)
+    upcoming_matches['date'] = pd.to_datetime(upcoming_matches['date'], format='mixed', utc=True)
+    
+    # Pour chaque match à venir
     for _, match in upcoming_matches.iterrows():
+        home_team = match['home_team']
+        away_team = match['away_team']
+        match_date = match['date']
+        
+        # Filtrer les matchs historiques avant la date du match
+        past_matches = historical_matches[historical_matches['date'] < match_date].copy()
+        
+        if past_matches.empty:
+            log(f"Attention: Aucun match historique trouvé avant {match_date}")
+            continue
+        
+        # Calculer les statistiques pour l'équipe à domicile
+        home_stats = calculate_weighted_stats(past_matches, home_team, True)
+        
+        # Calculer les statistiques pour l'équipe à l'extérieur
+        away_stats = calculate_weighted_stats(past_matches, away_team, False)
+        
+        # Créer une ligne de données avec toutes les features
         row = {
-            'home_team': match['home_team'],
-            'away_team': match['away_team'],
-            'home_team_form': calculate_form(historical_matches, match['home_team']),
-            'away_team_form': calculate_form(historical_matches, match['away_team']),
-            'home_goals_scored_avg': historical_matches[historical_matches['home_team'] == match['home_team']]['home_score'].mean(),
-            'away_goals_scored_avg': historical_matches[historical_matches['away_team'] == match['away_team']]['away_score'].mean(),
-            'home_goals_conceded_avg': historical_matches[historical_matches['home_team'] == match['home_team']]['away_score'].mean(),
-            'away_goals_conceded_avg': historical_matches[historical_matches['away_team'] == match['away_team']]['home_score'].mean(),
-            'weather_temp': match['weather_temp'] if pd.notna(match['weather_temp']) else 0,
-            'weather_rain': match['weather_rain'] if pd.notna(match['weather_rain']) else 0,
-            'weather_wind': match['weather_wind'] if pd.notna(match['weather_wind']) else 0,
-            'home_european': match['home_european_match'] if pd.notna(match['home_european_match']) else 0,
-            'away_european': match['away_european_match'] if pd.notna(match['away_european_match']) else 0,
-            'home_fatigue': match['home_team_fatigue'] if pd.notna(match['home_team_fatigue']) else 0,
-            'away_fatigue': match['away_team_fatigue'] if pd.notna(match['away_team_fatigue']) else 0
+            'home_team': home_team,
+            'away_team': away_team,
+            'home_team_form': home_stats['form'],
+            'away_team_form': away_stats['form'],
+            'home_goals_scored_avg': home_stats['goals_scored_avg'],
+            'away_goals_scored_avg': away_stats['goals_scored_avg'],
+            'home_goals_conceded_avg': home_stats['goals_conceded_avg'],
+            'away_goals_conceded_avg': away_stats['goals_conceded_avg']
         }
+        
+        # Ajouter les features météo et européennes si disponibles
+        if 'weather_temp' in match:
+            row.update({
+                'weather_temp': match['weather_temp'] if pd.notna(match['weather_temp']) else 0,
+                'weather_rain': match['weather_rain'] if pd.notna(match['weather_rain']) else 0,
+                'weather_wind': match['weather_wind'] if pd.notna(match['weather_wind']) else 0
+            })
+        
+        if 'home_european_match' in match:
+            row.update({
+                'home_european': match['home_european_match'] if pd.notna(match['home_european_match']) else 0,
+                'away_european': match['away_european_match'] if pd.notna(match['away_european_match']) else 0,
+                'home_fatigue': match['home_team_fatigue'] if pd.notna(match['home_team_fatigue']) else 0,
+                'away_fatigue': match['away_team_fatigue'] if pd.notna(match['away_team_fatigue']) else 0
+            })
+        
+        # Ajouter la ligne au DataFrame
         df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
     
-    # Gestion des NaN
+    # Remplir les valeurs manquantes par 0
     df = df.fillna(0)
     
-    # Normalisation des features
-    df = normalize_features(df)
+    # S'assurer que toutes les features nécessaires sont présentes
+    for feature in FEATURES:
+        if feature not in df.columns:
+            log(f"Feature manquante: {feature}, ajout avec valeur 0")
+            df[feature] = 0
     
-    # Colonnes attendues dans l'ordre
-    feature_columns = [
-        'home_team_form', 'away_team_form',
-        'home_goals_scored_avg', 'away_goals_scored_avg',
-        'home_goals_conceded_avg', 'away_goals_conceded_avg',
-        'weather_temp', 'weather_rain', 'weather_wind',
-        'home_european', 'away_european',
-        'home_fatigue', 'away_fatigue'
-    ]
+    return df[['home_team', 'away_team'] + FEATURES]
+
+def calculate_weighted_stats(matches, team, is_home):
+    """Calcule les statistiques pondérées pour une équipe"""
+    # Filtrer les matchs de l'équipe
+    team_matches = matches[
+        ((matches['home_team'] == team) & is_home) |
+        ((matches['away_team'] == team) & ~is_home)
+    ].copy()
     
-    return df[['home_team', 'away_team'] + feature_columns]
+    if team_matches.empty:
+        return {
+            'form': 0,
+            'goals_scored_avg': 0,
+            'goals_conceded_avg': 0
+        }
+    
+    # Trier par date décroissante et limiter aux 10 derniers matchs
+    team_matches = team_matches.sort_values('date', ascending=False).head(10)
+    
+    # Calculer les buts marqués et encaissés
+    goals_scored = []
+    goals_conceded = []
+    goal_differences = []
+    
+    for _, match in team_matches.iterrows():
+        if (match['home_team'] == team and is_home) or (match['away_team'] == team and not is_home):
+            goals_for = match['home_score'] if match['home_team'] == team else match['away_score']
+            goals_against = match['away_score'] if match['home_team'] == team else match['home_score']
+            
+            goals_scored.append(goals_for)
+            goals_conceded.append(goals_against)
+            goal_differences.append(goals_for - goals_against)
+    
+    # Calculer les moyennes pondérées (plus de poids aux matchs récents)
+    # Augmenter le facteur de décroissance pour donner plus d'importance aux matchs récents
+    weights = np.exp(-np.arange(len(team_matches)) * 0.5)  # Facteur de décroissance plus important
+    weights = weights / weights.sum()  # Normalisation des poids
+    
+    goals_scored_avg = np.average(goals_scored, weights=weights) if goals_scored else 0
+    goals_conceded_avg = np.average(goals_conceded, weights=weights) if goals_conceded else 0
+    
+    # Calculer la forme (basée sur la différence de buts pondérée)
+    form = np.average(goal_differences, weights=weights) if goal_differences else 0
+    
+    # Ajuster la forme en fonction de la moyenne de buts marqués et encaissés
+    form = form * (1 + goals_scored_avg / (goals_conceded_avg + 1))
+    
+    return {
+        'form': form,
+        'goals_scored_avg': goals_scored_avg,
+        'goals_conceded_avg': goals_conceded_avg
+    }
+
+def normalize_score(score, match_id):
+    """Convertit un score prédit en utilisant une distribution de Poisson"""
+    from scipy.stats import poisson
+    import numpy as np
+    import random
+    
+    # Utiliser la prédiction comme lambda (moyenne) de la distribution
+    lambda_param = max(0, min(5, float(score)))  # Limiter entre 0 et 5 pour plus de réalisme
+    
+    # Utiliser l'ID du match et un nombre aléatoire comme graine
+    # pour avoir des scores cohérents mais pas trop de matchs nuls
+    np.random.seed(match_id + random.randint(0, 1000))
+    
+    # Ajuster légèrement le lambda pour réduire les matchs nuls
+    if random.random() < 0.7:  # 70% de chance d'ajuster
+        lambda_param *= random.uniform(0.8, 1.2)
+    
+    return int(poisson.rvs(lambda_param))
 
 def predict_scores():
     """Prédit les scores des matchs à venir"""
@@ -268,7 +326,21 @@ def predict_scores():
         # Chargement des données
         log("Chargement des données...")
         matches = get_matches()
-        historical_matches = matches[matches['home_score'].notna()]
+        
+        # Récupérer tous les matchs historiques, même ceux avant aujourd'hui
+        conn = sqlite3.connect(DB_PATH)
+        historical_query = """
+        SELECT DISTINCT
+            id, home_team, away_team, home_score, away_score, datetime(date) as date
+        FROM matches 
+        WHERE home_score IS NOT NULL 
+        AND away_score IS NOT NULL
+        ORDER BY date DESC
+        """
+        historical_matches = pd.read_sql_query(historical_query, conn)
+        conn.close()
+        
+        # Filtrer les matchs à venir
         upcoming_matches = matches[matches['home_score'].isna()]
         
         if upcoming_matches.empty:
@@ -291,29 +363,37 @@ def predict_scores():
         home_scores = model_home.predict(X)
         away_scores = model_away.predict(X)
         
+        # Régularisation manuelle des scores
+        home_scores = np.clip(home_scores, 0, 5)  # Augmenter la limite à 5 buts
+        away_scores = np.clip(away_scores, 0, 5)
+        
         # Préparation des résultats
         predictions = []
         for i, (_, match) in enumerate(upcoming_matches.iterrows()):
+            # Normalisation des scores prédits avec l'ID du match
+            pred_home = normalize_score(home_scores[i], int(match['id']))
+            pred_away = normalize_score(away_scores[i], int(match['id']))
+            
             prediction = {
                 'match_id': int(match['id']),
-                'home_team': match['home_team'],
-                'away_team': match['away_team'],
-                'predicted_home_score': round(float(home_scores[i]), 2),
-                'predicted_away_score': round(float(away_scores[i]), 2),
-                'date': match['date'],
+                'home_team': str(match['home_team']),
+                'away_team': str(match['away_team']),
+                'predicted_home_score': pred_home,
+                'predicted_away_score': pred_away,
+                'date': str(match['date']),
                 'weather': {
                     'temperature': float(match['weather_temp']) if pd.notna(match['weather_temp']) else None,
                     'precipitation': float(match['weather_rain']) if pd.notna(match['weather_rain']) else None,
                     'wind_speed': float(match['weather_wind']) if pd.notna(match['weather_wind']) else None,
-                    'condition': match['weather_condition'] if pd.notna(match['weather_condition']) else None
+                    'condition': str(match['weather_condition']) if pd.notna(match['weather_condition']) else None
                 },
                 'european_context': {
                     'home_team_european': bool(match['home_european_match']) if pd.notna(match['home_european_match']) else False,
                     'away_team_european': bool(match['away_european_match']) if pd.notna(match['away_european_match']) else False,
                     'home_team_fatigue': bool(match['home_team_fatigue']) if pd.notna(match['home_team_fatigue']) else False,
                     'away_team_fatigue': bool(match['away_team_fatigue']) if pd.notna(match['away_team_fatigue']) else False,
-                    'home_competition': match['home_european_competition'] if pd.notna(match['home_european_competition']) else None,
-                    'away_competition': match['away_european_competition'] if pd.notna(match['away_european_competition']) else None
+                    'home_competition': str(match['home_european_competition']) if pd.notna(match['home_european_competition']) else None,
+                    'away_competition': str(match['away_european_competition']) if pd.notna(match['away_european_competition']) else None
                 }
             }
             predictions.append(prediction)

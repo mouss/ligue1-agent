@@ -1,24 +1,32 @@
 {
   "name": "ligue1-agent",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Agent IA pour les prédictions de la Ligue 1",
+  "main": "app.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "init-db": "node scripts/initDatabase.js"
+    "init-db": "node scripts/initDatabase.js",
+    "insert-data": "node scripts/insert_real_data.js",
+    "update-h2h": "node scripts/update_head_to_head.js",
+    "insert-teams": "node scripts/insert_teams.js",
+    "insert-test-matches": "node scripts/insert_test_matches.js",
+    "start": "node app.js",
+    "dev": "nodemon app.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "axios": "^1.8.4",
-    "ejs": "^3.1.10",
-    "express": "^4.21.2",
+    "axios": "^1.3.4",
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "node-cron": "^3.0.2",
+    "sqlite3": "^5.1.6",
+    "ws": "^8.18.1",
     "python-shell": "^5.0.0",
-    "sqlite3": "^5.1.7",
-    "ws": "^8.18.1"
+    "dotenv": "^16.0.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^2.0.22"
   }
 }

@@ -4,7 +4,7 @@ const path = require('path');
 module.exports = {
     PORT: 3000,
     LIGUE1_ID: 61,
-    SEASON: 2024,
+    SEASON: 2025,
     PATHS: {
         ROOT: path.resolve(__dirname, '..'),
         PYTHON_SCRIPT: path.resolve(__dirname, '../python/train_model.py'),

@@ -1,0 +1,61 @@
+{
+  "metrics": {
+    "home": {
+      "rmse": 0.263691136360428,
+      "mae": 0.19524008810276025,
+      "cv_rmse": 0.2804108364776379
+    },
+    "away": {
+      "rmse": 0.2514798403101303,
+      "mae": 0.1862465175875464,
+      "cv_rmse": 0.27261402235475674
+    }
+  },
+  "feature_importance": {
+    "home": {
+      "home_team_form": 0.0,
+      "away_team_form": 0.0,
+      "home_goals_scored_avg": 0.09882678091526031,
+      "away_goals_scored_avg": 0.03494469076395035,
+      "home_goals_conceded_avg": 0.07312682271003723,
+      "away_goals_conceded_avg": 0.10568712651729584,
+      "weather_temp": 0.0,
+      "weather_rain": 0.0,
+      "weather_wind": 0.0,
+      "home_missing_key_players": 0.008075681515038013,
+      "away_missing_key_players": 0.03907748684287071,
+      "form_difference": 0.0,
+      "goals_scored_diff": 0.024956893175840378,
+      "goals_conceded_diff": 0.056264739483594894,
+      "h2h_goal_diff": 0.5446231365203857,
+      "h2h_experience": 0.014416670426726341,
+      "home_high_form": 0.0,
+      "away_high_form": 0.0,
+      "home_european_match": 0.0,
+      "away_european_match": 0.0
+    },
+    "away": {
+      "home_team_form": 0.0,
+      "away_team_form": 0.0,
+      "home_goals_scored_avg": 0.039969492703676224,
+      "away_goals_scored_avg": 0.07364949584007263,
+      "home_goals_conceded_avg": 0.09868025034666061,
+      "away_goals_conceded_avg": 0.05026501789689064,
+      "weather_temp": 0.0,
+      "weather_rain": 0.0,
+      "weather_wind": 0.0,
+      "home_missing_key_players": 0.01917104795575142,
+      "away_missing_key_players": 0.03568515181541443,
+      "form_difference": 0.0,
+      "goals_scored_diff": 0.051907941699028015,
+      "goals_conceded_diff": 0.07669442892074585,
+      "h2h_goal_diff": 0.5267868638038635,
+      "h2h_experience": 0.027190309017896652,
+      "home_high_form": 0.0,
+      "away_high_form": 0.0,
+      "home_european_match": 0.0,
+      "away_european_match": 0.0
+    }
+  },
+  "timestamp": "2025-04-18T14:19:10.456077"
+}

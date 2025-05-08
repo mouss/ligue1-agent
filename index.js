@@ -353,27 +353,17 @@ app.get('/predictions', (req, res) => {
                 throw new Error('Format de prédictions invalide');
             }
 
-            // Dédupliquer les prédictions
-            const uniquePredictions = predictions.filter((pred, index) => {
-                return predictions.findIndex(p => 
-                    p.home_team === pred.home_team && 
-                    p.away_team === pred.away_team && 
-                    p.date === pred.date
-                ) === index;
-            });
-
             // Trier par date
-            uniquePredictions.sort((a, b) => new Date(a.date) - new Date(b.date));
+            predictions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-            console.log('Nombre de prédictions uniques:', uniquePredictions.length);
+            console.log('Nombre de prédictions:', predictions.length);
 
             // Rendu du template avec les données
             return res.render('predictions', {
                 title: 'Prédictions Ligue 1',
-                message: uniquePredictions.length > 0 ? `${uniquePredictions.length} matchs prédits` : 'Aucune prédiction disponible',
-                predictions: uniquePredictions || []
+                message: predictions.length > 0 ? `${predictions.length} matchs prédits` : 'Aucune prédiction disponible',
+                predictions: predictions || []
             });
-
         } catch (parseError) {
             console.error('Erreur lors du parsing JSON:', parseError);
             console.error('Sortie brute:', output);

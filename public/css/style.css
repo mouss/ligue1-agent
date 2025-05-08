@@ -1,0 +1,43 @@
+body {
+    background-color: #f8f9fa;
+}
+
+.team-logo {
+    width: 30px;
+    height: 30px;
+    margin: 0 10px;
+    object-fit: contain;
+}
+
+.team-info {
+    display: flex;
+    align-items: center;
+    min-width: 120px;
+}
+
+.score {
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #333;
+    margin: 0 15px;
+}
+
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-3px);
+}
+
+.navbar {
+    margin-bottom: 2rem;
+}
+
+.footer {
+    margin-top: 2rem;
+    padding: 1rem 0;
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+}

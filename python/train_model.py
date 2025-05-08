@@ -2,63 +2,158 @@ import sqlite3
 import pandas as pd
 import numpy as np
 from xgboost import XGBRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import cross_val_score, KFold
+from sklearn.preprocessing import StandardScaler
 import joblib
 import os
-from datetime import datetime
 import sys
 import json
 
 # Chemins des fichiers
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'db', 'ligue1.db')
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.joblib')
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'enhanced_model.joblib')
+
+# Liste des features utilisées pour l'entraînement
+FEATURES = [
+    'home_team_form', 'away_team_form',
+    'home_goals_scored_avg', 'away_goals_scored_avg',
+    'home_goals_conceded_avg', 'away_goals_conceded_avg',
+    'weather_temp', 'weather_rain', 'weather_wind',
+    'home_missing_key_players', 'away_missing_key_players',
+    'form_difference', 'goals_scored_diff', 'goals_conceded_diff',
+    'h2h_goal_diff', 'h2h_experience',
+    'home_high_form', 'away_high_form',
+    'home_european_match', 'away_european_match'
+]
 
 def load_data():
     """Charge les données d'entraînement depuis la base de données"""
     conn = sqlite3.connect(DB_PATH)
     
-    # Requête pour récupérer les matches avec toutes les features
     query = """
-    WITH match_stats AS (
+    WITH RECURSIVE 
+    match_stats AS (
         SELECT 
             team,
+            strftime('%Y-%m', date) as month,
             AVG(goals_scored) as avg_goals_scored,
-            AVG(goals_conceded) as avg_goals_conceded
+            AVG(goals_conceded) as avg_goals_conceded,
+            COUNT(*) as matches_played,
+            SUM(CASE WHEN goals_scored > goals_conceded THEN 1 ELSE 0 END) as wins,
+            SUM(CASE WHEN goals_scored = goals_conceded THEN 1 ELSE 0 END) as draws,
+            SUM(CASE WHEN goals_scored < goals_conceded THEN 1 ELSE 0 END) as losses
         FROM (
-            SELECT home_team as team, home_score as goals_scored, away_score as goals_conceded
+            SELECT 
+                home_team as team,
+                home_score as goals_scored,
+                away_score as goals_conceded,
+                date
             FROM matches
             WHERE home_score IS NOT NULL
             UNION ALL
-            SELECT away_team, away_score, home_score
+            SELECT 
+                away_team,
+                away_score,
+                home_score,
+                date
             FROM matches
             WHERE away_score IS NOT NULL
         )
-        GROUP BY team
+        GROUP BY team, month
+    ),
+    team_streaks AS (
+        SELECT 
+            team,
+            date,
+            SUM(CASE WHEN result = 'W' THEN 1 ELSE 0 END) OVER (
+                PARTITION BY team ORDER BY date ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
+            ) as win_streak,
+            SUM(CASE WHEN result = 'L' THEN 1 ELSE 0 END) OVER (
+                PARTITION BY team ORDER BY date ROWS BETWEEN 5 PRECEDING AND CURRENT ROW
+            ) as loss_streak
+        FROM (
+            SELECT 
+                home_team as team,
+                date,
+                CASE 
+                    WHEN home_score > away_score THEN 'W'
+                    WHEN home_score < away_score THEN 'L'
+                    ELSE 'D'
+                END as result
+            FROM matches
+            WHERE home_score IS NOT NULL
+            UNION ALL
+            SELECT 
+                away_team,
+                date,
+                CASE 
+                    WHEN away_score > home_score THEN 'W'
+                    WHEN away_score < home_score THEN 'L'
+                    ELSE 'D'
+                END
+            FROM matches
+            WHERE away_score IS NOT NULL
+        )
+    ),
+    head_to_head AS (
+        SELECT 
+            home_team,
+            away_team,
+            AVG(home_score) as avg_h2h_home_goals,
+            AVG(away_score) as avg_h2h_away_goals,
+            COUNT(*) as h2h_matches,
+            SUM(CASE WHEN home_score > away_score THEN 1 ELSE 0 END) as home_wins,
+            SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws,
+            SUM(CASE WHEN home_score < away_score THEN 1 ELSE 0 END) as away_wins
+        FROM matches
+        WHERE home_score IS NOT NULL
+        GROUP BY home_team, away_team
     )
     SELECT 
+        m.id,
         m.home_team,
         m.away_team,
-        m.home_score as home_goals,
-        m.away_score as away_goals,
+        m.home_score,
+        m.away_score,
         m.date,
         
-        -- Statistiques de forme
+        -- Forme des équipes
         tf_home.form as home_team_form,
         tf_away.form as away_team_form,
         
-        -- Moyennes de buts précalculées
+        -- Statistiques mensuelles
         h_stats.avg_goals_scored as home_goals_scored_avg,
         h_stats.avg_goals_conceded as home_goals_conceded_avg,
+        h_stats.wins as home_wins,
+        h_stats.draws as home_draws,
+        h_stats.losses as home_losses,
+        
         a_stats.avg_goals_scored as away_goals_scored_avg,
         a_stats.avg_goals_conceded as away_goals_conceded_avg,
+        a_stats.wins as away_wins,
+        a_stats.draws as away_draws,
+        a_stats.losses as away_losses,
+        
+        -- Séries de victoires/défaites
+        ts_home.win_streak as home_win_streak,
+        ts_home.loss_streak as home_loss_streak,
+        ts_away.win_streak as away_win_streak,
+        ts_away.loss_streak as away_loss_streak,
+        
+        -- Statistiques head-to-head
+        COALESCE(h2h.avg_h2h_home_goals, 0) as avg_h2h_home_goals,
+        COALESCE(h2h.avg_h2h_away_goals, 0) as avg_h2h_away_goals,
+        COALESCE(h2h.h2h_matches, 0) as h2h_matches,
+        COALESCE(h2h.home_wins, 0) as h2h_home_wins,
+        COALESCE(h2h.draws, 0) as h2h_draws,
+        COALESCE(h2h.away_wins, 0) as h2h_away_wins,
         
         -- Données météo
         sc.temperature as weather_temp,
         sc.precipitation as weather_rain,
         sc.wind_speed as weather_wind,
         
-        -- Données joueurs (optimisées)
+        -- Données joueurs
         COALESCE(h_missing.missing_count, 0) as home_missing_key_players,
         COALESCE(a_missing.missing_count, 0) as away_missing_key_players
         
@@ -75,8 +170,21 @@ def load_data():
             FROM team_form 
             WHERE team = m.away_team AND date <= m.date
         )
-    LEFT JOIN match_stats h_stats ON h_stats.team = m.home_team
-    LEFT JOIN match_stats a_stats ON a_stats.team = m.away_team
+    LEFT JOIN match_stats h_stats ON 
+        h_stats.team = m.home_team AND 
+        h_stats.month = strftime('%Y-%m', m.date)
+    LEFT JOIN match_stats a_stats ON 
+        a_stats.team = m.away_team AND
+        a_stats.month = strftime('%Y-%m', m.date)
+    LEFT JOIN team_streaks ts_home ON 
+        ts_home.team = m.home_team AND
+        ts_home.date = m.date
+    LEFT JOIN team_streaks ts_away ON 
+        ts_away.team = m.away_team AND
+        ts_away.date = m.date
+    LEFT JOIN head_to_head h2h ON 
+        h2h.home_team = m.home_team AND 
+        h2h.away_team = m.away_team
     LEFT JOIN stadium_conditions sc ON sc.match_date = m.date
     LEFT JOIN (
         SELECT team, COUNT(*) as missing_count
@@ -101,88 +209,113 @@ def load_data():
 
 def prepare_features(df):
     """Prépare et normalise les features"""
+    # Convertir les colonnes de forme en valeurs numériques
+    df['home_team_form'] = pd.to_numeric(df['home_team_form'], errors='coerce')
+    df['away_team_form'] = pd.to_numeric(df['away_team_form'], errors='coerce')
+    
+    # Calculer les différences
+    df['form_difference'] = df['home_team_form'] - df['away_team_form']
+    df['goals_scored_diff'] = df['home_goals_scored_avg'] - df['away_goals_scored_avg']
+    df['goals_conceded_diff'] = df['home_goals_conceded_avg'] - df['away_goals_conceded_avg']
+    
+    # Calculer les statistiques H2H
+    df['h2h_goal_diff'] = df['avg_h2h_home_goals'] - df['avg_h2h_away_goals']
+    df['h2h_experience'] = np.log1p(df['h2h_matches'])
+    
+    # Indicateurs de forme
+    df['home_high_form'] = (df['home_team_form'] > df['home_team_form'].mean()).astype(int)
+    df['away_high_form'] = (df['away_team_form'] > df['away_team_form'].mean()).astype(int)
+    
+    # Indicateurs de match européen
+    df['home_european_match'] = 0
+    df['away_european_match'] = 0
+    
     # Remplir les valeurs manquantes
-    df = df.fillna({
+    fill_values = {
+        'home_team_form': df['home_team_form'].mean(),
+        'away_team_form': df['away_team_form'].mean(),
+        'home_goals_scored_avg': df['home_goals_scored_avg'].mean(),
+        'away_goals_scored_avg': df['away_goals_scored_avg'].mean(),
+        'home_goals_conceded_avg': df['home_goals_conceded_avg'].mean(),
+        'away_goals_conceded_avg': df['away_goals_conceded_avg'].mean(),
         'weather_temp': df['weather_temp'].mean(),
         'weather_rain': 0,
         'weather_wind': df['weather_wind'].mean(),
         'home_missing_key_players': 0,
-        'away_missing_key_players': 0
-    })
+        'away_missing_key_players': 0,
+        'form_difference': 0,
+        'goals_scored_diff': 0,
+        'goals_conceded_diff': 0,
+        'h2h_goal_diff': 0,
+        'h2h_experience': 0,
+        'home_high_form': 0,
+        'away_high_form': 0,
+        'home_european_match': 0,
+        'away_european_match': 0
+    }
     
-    # Normalisation des features numériques
-    numeric_features = [
-        'home_team_form', 'away_team_form',
-        'home_goals_scored_avg', 'away_goals_scored_avg',
-        'home_goals_conceded_avg', 'away_goals_conceded_avg',
-        'weather_temp', 'weather_rain', 'weather_wind',
-        'home_missing_key_players', 'away_missing_key_players'
-    ]
-    
-    for feature in numeric_features:
-        mean = df[feature].mean()
-        std = df[feature].std()
-        if std > 0:
-            df[feature] = (df[feature] - mean) / std
-    
-    return df
+    return df.fillna(fill_values)
 
 def train_models(df):
-    """Entraîne les modèles de prédiction"""
+    """Entraîne les modèles de prédiction avec validation croisée"""
     # Préparation des features
-    features = [
-        'home_team_form', 'away_team_form',
-        'home_goals_scored_avg', 'away_goals_scored_avg',
-        'home_goals_conceded_avg', 'away_goals_conceded_avg',
-        'weather_temp', 'weather_rain', 'weather_wind',
-        'home_missing_key_players', 'away_missing_key_players'
-    ]
+    X = df[FEATURES]
+    y_home = df['home_score']
+    y_away = df['away_score']
     
-    X = df[features]
-    y_home = df['home_goals']
-    y_away = df['away_goals']
+    # Normalisation des features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
     
-    # Split des données
-    X_train, X_test, y_home_train, y_home_test, y_away_train, y_away_test = train_test_split(
-        X, y_home, y_away, test_size=0.2, random_state=42
-    )
-    
-    # Configuration des modèles
+    # Configuration des modèles avec hyperparamètres optimisés
     params = {
-        'n_estimators': 150,
-        'learning_rate': 0.05,
-        'max_depth': 4,
-        'min_child_weight': 2,
+        'n_estimators': 200,
+        'learning_rate': 0.03,
+        'max_depth': 5,
+        'min_child_weight': 3,
         'subsample': 0.8,
         'colsample_bytree': 0.8,
+        'gamma': 0.1,
+        'reg_alpha': 0.1,
+        'reg_lambda': 1,
         'random_state': 42
     }
     
-    # Entraînement du modèle pour les buts à domicile
+    # Validation croisée
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    
+    # Modèle pour les buts à domicile
     model_home = XGBRegressor(**params)
-    model_home.fit(X_train, y_home_train)
+    cv_scores_home = cross_val_score(model_home, X_scaled, y_home, cv=kf, scoring='neg_root_mean_squared_error')
+    home_rmse = -cv_scores_home.mean()
     
-    # Entraînement du modèle pour les buts à l'extérieur
+    # Modèle pour les buts à l'extérieur
     model_away = XGBRegressor(**params)
-    model_away.fit(X_train, y_away_train)
+    cv_scores_away = cross_val_score(model_away, X_scaled, y_away, cv=kf, scoring='neg_root_mean_squared_error')
+    away_rmse = -cv_scores_away.mean()
     
-    # Évaluation des modèles
-    home_rmse = np.sqrt(((model_home.predict(X_test) - y_home_test) ** 2).mean())
-    away_rmse = np.sqrt(((model_away.predict(X_test) - y_away_test) ** 2).mean())
+    # Entraînement final sur toutes les données
+    model_home.fit(X_scaled, y_home)
+    model_away.fit(X_scaled, y_away)
     
-    print(f"RMSE buts domicile: {home_rmse:.3f}")
-    print(f"RMSE buts extérieur: {away_rmse:.3f}")
+    print(f"CV RMSE domicile : {home_rmse:.3f}")
+    print(f"CV RMSE extérieur : {away_rmse:.3f}")
+    print("Les scores proches du RMSE indiquent une bonne stabilité du modèle")
     
     return {
         'home': model_home,
         'away': model_away,
+        'scaler': scaler,
+        'features': FEATURES,
         'metrics': {
-            'home_rmse': home_rmse,
-            'away_rmse': away_rmse
+            'home_rmse': float(home_rmse),
+            'away_rmse': float(away_rmse),
+            'cv_scores_home': cv_scores_home.tolist(),
+            'cv_scores_away': cv_scores_away.tolist()
         }
     }
 
-def save_models(models, filename='ligue1_model.pkl'):
+def save_models(models, filename='enhanced_model.joblib'):
     """Sauvegarde les modèles entraînés"""
     try:
         joblib.dump(models, filename)
